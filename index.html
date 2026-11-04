@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>腫瘤科會診回覆</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #fff; --line: #dfe2e6; --text: #1f2328; --muted: #6b7280;
+    --accent: #2563eb; --accent-weak: #e8efff; --ok: #16a34a; --warn: #ea8a0c; --danger: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Microsoft JhengHei", "Segoe UI", sans-serif;
+    font-size: 14px; color: var(--text); background: var(--bg);
+    display: grid; grid-template-columns: 220px minmax(0, 1fr) 470px; height: 100vh; overflow: hidden;
+  }
+  body.no-preview { grid-template-columns: 220px minmax(0, 1fr) 0; }
+  body.no-preview #preview { display: none; }
+
+  /* ---------- 側邊病人清單 ---------- */
+  #sidebar { background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  #sidebar header { padding: 14px; border-bottom: 1px solid var(--line); }
+  #sidebar h1 { font-size: 15px; margin: 0 0 10px; }
+  #patientList { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+  #patientList li {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; user-select: none;
+  }
+  #patientList li:hover { background: #f3f4f6; }
+  #patientList li.active { background: var(--accent-weak); }
+  #patientList .st { font-size: 12px; width: 14px; text-align: center; }
+  #patientList .st.draft { color: var(--warn); }
+  #patientList .st.done { color: var(--ok); font-weight: 700; }
+  #patientList .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #patientList .wd { color: var(--muted); font-size: 12px; }
+  #patientList .del { visibility: hidden; border: 0; background: none; color: var(--muted); font-size: 16px; cursor: pointer; padding: 0 2px; }
+  #patientList li:hover .del { visibility: visible; }
+  #patientList .del:hover { color: var(--danger); }
+  #sidebar footer { padding: 10px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); line-height: 1.6; }
+
+  /* ---------- 主要表單 ---------- */
+  #main { display: flex; flex-direction: column; min-height: 0; }
+  #topbar {
+    background: #fff; border-bottom: 1px solid var(--line); padding: 12px 18px;
+    display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end;
+  }
+  #topbar .hf { display: flex; flex-direction: column; gap: 3px; }
+  #topbar .hf span { font-size: 12px; color: var(--muted); }
+  #topbar .hf input { width: 130px; }
+  #topbar .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  #formScroll { overflow-y: auto; flex: 1; padding: 16px 18px 60px; }
+  form { max-width: 860px; margin: 0 auto; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+  .card > h2 { font-size: 13px; margin: 0 0 8px; color: #374151; font-family: Menlo, Consolas, monospace; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 6px 0; }
+  .row > .lbl { width: 92px; color: #374151; font-weight: 500; flex-shrink: 0; }
+  .row .grow { flex: 1; min-width: 200px; }
+  .unit { color: var(--muted); font-size: 12px; margin-left: -4px; margin-right: 6px; }
+  .hint { color: var(--muted); font-size: 12px; }
+
+  input[type=text], input[type=date], select, textarea {
+    font: inherit; border: 1px solid #cfd4da; border-radius: 6px; padding: 5px 8px; background: #fff; color: inherit;
+  }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-weak); border-color: var(--accent); }
+  textarea { width: 100%; resize: vertical; min-height: 34px; line-height: 1.45; overflow: hidden; display: block; }
+  input.num { width: 70px; }
+  input.sm { width: 52px; }
+
+  /* 分段按鈕（radio） */
+  .seg { display: inline-flex; border: 1px solid #cfd4da; border-radius: 6px; overflow: hidden; }
+  .seg label { position: relative; cursor: pointer; }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg span { display: inline-block; padding: 4px 10px; border-right: 1px solid #cfd4da; font-size: 13px; }
+  .seg label:last-child span { border-right: 0; }
+  .seg input:checked + span { background: var(--accent); color: #fff; }
+  .seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  .opt { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .sug-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+  .sug-item input[type=checkbox] { width: 16px; height: 16px; flex-shrink: 0; }
+  .custom-row { display: flex; gap: 6px; margin: 4px 0 4px 24px; }
+  .custom-row input { flex: 1; }
+
+  button {
+    font: inherit; border: 1px solid #cfd4da; background: #fff; border-radius: 7px; padding: 6px 12px; cursor: pointer; color: inherit;
+  }
+  button:hover { background: #f3f4f6; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: #1d4fd8; }
+  button.full { width: 100%; }
+  button.icon { padding: 4px 9px; color: var(--muted); }
+
+  /* ---------- 右側預覽 ---------- */
+  #preview { border-left: 1px solid var(--line); overflow: auto; background: #e9ebee; padding: 16px; }
+  #preview .page { zoom: 0.54; margin: 0 auto; box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+
+  /* ---------- 輸出頁面（預覽與列印共用） ---------- */
+  .page {
+    width: 210mm; min-height: 297mm; padding: 16mm 18mm; background: #fff; color: #000;
+    font-family: Arial, Helvetica, "PingFang TC", "Microsoft JhengHei", sans-serif; font-size: 11pt; line-height: 1.4;
+  }
+  .page table.hdr { width: 100%; table-layout: fixed; border-collapse: collapse; margin-bottom: 14px; border-bottom: 1.5px solid #000; }
+  .page table.hdr td { padding: 0 0 6px; font-size: 11pt; }
+  .page table.hdr td span { font-weight: 700; margin-right: 6px; }
+  .page .sec { margin-bottom: 12px; break-inside: avoid; }
+  .page .sec .b { white-space: pre-wrap; }
+
+  #printArea { display: none; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); opacity: 0;
+    background: #111827; color: #fff; padding: 8px 16px; border-radius: 8px; transition: .2s; pointer-events: none;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 1250px) {
+    body { grid-template-columns: 200px minmax(0, 1fr) 0; }
+    #preview { display: none; }
+    body.force-preview { grid-template-columns: 200px minmax(0, 1fr) 400px; }
+    body.force-preview #preview { display: block; }
+  }
+
+  @media print {
+    @page { size: A4; margin: 16mm 18mm; }
+    html, body { height: auto; overflow: visible; display: block; background: #fff; }
+    body > *:not(#printArea) { display: none !important; }
+    #printArea { display: block; }
+    #printArea .page { width: auto; min-height: 0; padding: 0; break-after: page; }
+    #printArea .page:last-child { break-after: auto; }
+  }
+</style>
+</head>
+<body>
+
+<aside id="sidebar">
+  <header>
+    <h1>會診病人</h1>
+    <button class="primary full" id="addBtn">＋ 新增病人</button>
+  </header>
+  <ul id="patientList"></ul>
+  <footer>
+    <span style="color:var(--warn)">●</span> 填寫中　<span style="color:var(--ok)">✓</span> 已複製/輸出<br>
+    資料不會儲存，關閉或重新整理頁面後就會消失。
+  </footer>
+</aside>
+
+<main id="main">
+  <div id="topbar">
+    <label class="hf"><span>病人姓名</span><input type="text" data-k="name" form="f"></label>
+    <label class="hf"><span>病歷號</span><input type="text" data-k="chartNo" form="f"></label>
+    <label class="hf"><span>病房</span><input type="text" data-k="ward" form="f"></label>
+    <label class="hf"><span>日期</span><input type="date" data-k="date" form="f"></label>
+    <div class="actions">
+      <button id="previewBtn" type="button" title="顯示/隱藏預覽">預覽</button>
+      <button id="copyBtn" type="button">複製文字</button>
+      <button id="printBtn" type="button" class="primary">輸出 PDF</button>
+      <button id="printAllBtn" type="button">全部輸出 PDF</button>
+    </div>
+  </div>
+
+  <div id="formScroll">
+  <form id="f" autocomplete="off" onsubmit="return false">
+
+    <div class="card"><h2>[Underlying]</h2><textarea data-k="underlying"></textarea></div>
+    <div class="card"><h2>[Family history]</h2><textarea data-k="familyHistory"></textarea></div>
+
+    <div class="card"><h2>[Life style]</h2>
+      <div class="row"><span class="lbl">A（酒）</span>
+        <label class="opt"><input type="radio" name="lsA" value="denied">denied</label>
+        <label class="opt"><input type="radio" name="lsA" value="social">social drink</label>
+        <label class="opt"><input type="radio" name="lsA" value="other">其他</label>
+        <input type="text" class="grow" data-k="lsAOther" data-pick="lsA">
+      </div>
+      <div class="row"><span class="lbl">B（檳榔）</span>
+        <label class="opt"><input type="radio" name="lsB" value="denied">denied</label>
+        <label class="opt"><input type="radio" name="lsB" value="other">其他</label>
+        <input type="text" class="grow" data-k="lsBOther" data-pick="lsB">
+      </div>
+      <div class="row"><span class="lbl">C（菸）</span>
+        <label class="opt"><input type="radio" name="lsC" value="denied">denied</label>
+        <label class="opt"><input type="radio" name="lsC" value="quit">quit for</label>
+        <input type="text" class="sm" data-k="lsCQuit"><span class="unit">years</span>
+        <label class="opt"><input type="radio" name="lsC" value="current">current smoker</label>
+        <label class="opt"><input type="radio" name="lsC" value="other">其他</label>
+        <input type="text" class="grow" data-k="lsCOther" data-pick="lsC">
+      </div>
+      <div class="row"><span class="lbl"></span>
+        PPD <input type="text" class="sm" data-k="lsCPpd"> for <input type="text" class="sm" data-k="lsCPpdYears"> years
+        <span class="hint">（選 quit 或 current smoker 時輸出）</span>
+      </div>
+    </div>
+
+    <div class="card"><h2>[Occupation]</h2><textarea data-k="occupation"></textarea></div>
+
+    <div class="card"><h2>[ECOG]</h2>
+      <select data-k="ecog">
+        <option value=""></option>
+        <option value="0">0 — Fully active</option>
+        <option value="1">1 — Restricted in strenuous activity</option>
+        <option value="2">2 — Ambulatory, up &gt; 50% of waking hours</option>
+        <option value="3">3 — Limited self-care, bed/chair &gt; 50%</option>
+        <option value="4">4 — Completely disabled</option>
+      </select>
+    </div>
+
+    <div class="card"><h2>[Organ]</h2>
+      <div class="row"><span class="lbl">General</span>
+        LA <input type="text" class="num" data-k="la"><span class="unit">mmol/L</span>
+      </div>
+      <div class="row"><span class="lbl">Kidney</span>
+        BUN <input type="text" class="num" data-k="bun"><span class="unit">mg/dL</span>
+        Cre <input type="text" class="num" data-k="cre"><span class="unit">mg/dL</span>
+      </div>
+      <div class="row"><span class="lbl">Liver</span>
+        Alb <input type="text" class="num" data-k="alb"><span class="unit">g/dL</span>
+        T-bil <input type="text" class="num" data-k="tbil"><span class="unit">mg/dL</span>
+        PT INR <input type="text" class="num" data-k="inr">
+      </div>
+      <div class="row"><span class="lbl"></span>
+        Ascites
+        <span class="seg"><label><input type="radio" name="ascites" value="-"><span>(-)</span></label><label><input type="radio" name="ascites" value="+"><span>(+)</span></label></span>
+        &nbsp; Encephalopathy
+        <span class="seg"><label><input type="radio" name="enceph" value="-"><span>(-)</span></label><label><input type="radio" name="enceph" value="+"><span>(+)</span></label></span>
+      </div>
+      <div class="row"><span class="lbl">Lung</span><div class="grow"><textarea data-k="lung"></textarea></div></div>
+      <div class="row"><span class="lbl">Heart</span><div class="grow"><textarea data-k="heart"></textarea></div></div>
+      <div class="row"><span class="lbl">Hemogram</span><div class="grow"><textarea data-k="hemogram"></textarea></div></div>
+    </div>
+
+    <div class="card"><h2>[Nutrition]</h2>
+      <div class="row"><span class="lbl">Alb</span>
+        <input type="text" class="num" data-k="nutAlb"><span class="unit">g/dL</span>
+        <span class="hint">（自動帶入 Liver 的 Alb，可另外修改）</span>
+      </div>
+      <div class="row"><span class="lbl">Intake</span><input type="text" class="grow" data-k="intake"></div>
+      <div class="row"><span class="lbl">BW change</span><input type="text" class="grow" data-k="bwChange"></div>
+    </div>
+
+    <div class="card"><h2>[Finance]</h2>
+      <div class="row"><span class="lbl">Insurance</span><input type="text" class="grow" data-k="insurance"></div>
+    </div>
+
+    <div class="card"><h2>[Family support]</h2><textarea data-k="familySupport"></textarea></div>
+    <div class="card"><h2>[Residency]</h2><textarea data-k="residency"></textarea></div>
+
+    <div class="card"><h2>[Viral hepatitis profile]</h2>
+      <div class="row" id="viralRow"></div>
+    </div>
+
+    <div class="card"><h2>[Tumor marker]</h2><textarea data-k="tumorMarker"></textarea></div>
+    <div class="card"><h2>[Pathology]</h2><textarea data-k="pathology"></textarea></div>
+    <div class="card"><h2>[Timeline]</h2><textarea data-k="timeline"></textarea></div>
+    <div class="card"><h2>[Reply]</h2><textarea data-k="reply"></textarea></div>
+
+    <div class="card"><h2>Suggestion</h2>
+      <label class="sug-item"><input type="checkbox" data-k="s_card">重卡申請</label>
+      <label class="sug-item"><input type="checkbox" data-k="s_hbv">Please complete HBV survey (HBsAg, Anti-HBs, Anti-HBc), HCV (Anti-HCV)</label>
+      <div class="sug-item"><input type="checkbox" data-k="s_check" id="s_check"><label for="s_check">Check</label>
+        <input type="text" data-k="sugCheck" data-tick="s_check" style="width:200px"><label for="s_check">(腫瘤科會送單, 請病房端收醫令即可)</label></div>
+      <label class="sug-item"><input type="checkbox" data-k="s_port">Please complete portA insertion</label>
+      <label class="sug-item"><input type="checkbox" data-k="s_tm">Please check tumor marker with CEA, CA 19-9</label>
+      <div class="sug-item"><input type="checkbox" data-k="s_opd" id="s_opd"><label for="s_opd">Please arrange Dr.</label>
+        <input type="text" data-k="sugDr" data-tick="s_opd" style="width:130px"><label for="s_opd">'s OPD after discharge</label></div>
+      <div id="customList"></div>
+      <button type="button" class="icon" id="addSugBtn" style="margin-top:6px">＋ 新增自訂建議</button>
+    </div>
+
+  </form>
+  </div>
+</main>
+
+<aside id="preview"></aside>
+<div id="printArea"></div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+const DEFAULT_REPLY = 'I will visit the patient as soon as possible';
+const CLOSING = 'Please be free to contact us if there are any oncological problems. Thank you very much!';
+const VIRAL = [['hbsag', 'HBsAg'], ['antiHbs', 'Anti-HBs'], ['antiHbc', 'Anti-HBc'], ['antiHcv', 'Anti-HCV']];
+
+const $ = s => document.querySelector(s);
+const form = $('#f');
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const t = s => String(s ?? '').trim();
+
+function today() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+let seq = 0;
+function newPatient() {
+  return {
+    id: ++seq, status: 'draft', touched: false,
+    name: '', chartNo: '', ward: '', date: today(),
+    underlying: '', familyHistory: '',
+    lsA: '', lsAOther: '', lsB: '', lsBOther: '',
+    lsC: '', lsCQuit: '', lsCPpd: '', lsCPpdYears: '', lsCOther: '',
+    occupation: '', ecog: '',
+    la: '', bun: '', cre: '', alb: '', tbil: '', inr: '', ascites: '-', enceph: '-',
+    lung: '', heart: '', hemogram: '',
+    nutAlb: '', nutAlbLinked: true, intake: '', bwChange: '',
+    insurance: '', familySupport: '', residency: '',
+    hbsag: '?', antiHbs: '?', antiHbc: '?', antiHcv: '?',
+    tumorMarker: '', pathology: '', timeline: '',
+    reply: DEFAULT_REPLY,
+    s_card: false, s_hbv: false, s_check: false, s_port: false, s_tm: false, s_opd: false,
+    sugCheck: '', sugDr: '', customSug: [],
+  };
+}
+
+let patients = [];
+let curId = null;
+const cur = () => patients.find(p => p.id === curId);
+
+/* ---------- 由資料組出輸出內容 ---------- */
+function build(p) {
+  const withVal = (label, val) => (t(val) ? `${label}: ${t(val)}` : label);
+
+  const A = p.lsA === 'other' ? t(p.lsAOther) : ({ denied: 'denied', social: 'social drink' }[p.lsA] || '');
+  const B = p.lsB === 'other' ? t(p.lsBOther) : (p.lsB === 'denied' ? 'denied' : '');
+  const ppd = `PPD ${t(p.lsCPpd)} for ${t(p.lsCPpdYears)} years`;
+  const C = {
+    denied: 'denied',
+    quit: `quit for ${t(p.lsCQuit)} years, ${ppd}`,
+    current: `current smoker, ${ppd}`,
+    other: t(p.lsCOther),
+  }[p.lsC] || '';
+
+  const sug = [];
+  if (p.s_card) sug.push('- 重卡申請');
+  if (p.s_hbv) sug.push('- Please complete HBV survey (HBsAg, Anti-HBs, Anti-HBc), HCV (Anti-HCV)');
+  if (p.s_check) sug.push(`- Check${t(p.sugCheck) ? ' ' + t(p.sugCheck) : ''} (腫瘤科會送單, 請病房端收醫令即可)`);
+  if (p.s_port) sug.push('- Please complete portA insertion');
+  if (p.s_tm) sug.push('- Please check tumor marker with CEA, CA 19-9');
+  if (p.s_opd) sug.push(`- Please arrange Dr.${t(p.sugDr) ? ' ' + t(p.sugDr) : ''}'s OPD after discharge`);
+  p.customSug.forEach(s => { if (t(s)) sug.push('- ' + t(s)); });
+
+  return [
+    ['[Underlying]', t(p.underlying)],
+    ['[Family history]', t(p.familyHistory)],
+    ['[Life style]', `A: ${A}\nB: ${B}\nC: ${C}`],
+    ['[Occupation]', t(p.occupation)],
+    ['[ECOG]', t(p.ecog)],
+    ['[Organ]', [
+      `- General: LA: ${t(p.la)} mmol/L`,
+      `- Kidney: BUN: ${t(p.bun)} mg/dL, Cre: ${t(p.cre)} mg/dL`,
+      `- Liver: Alb ${t(p.alb)} g/dL, Ascites (${p.ascites}), T-bil ${t(p.tbil)} mg/dL, PT INR ${t(p.inr)}, encephalopathy (${p.enceph})`,
+      withVal('- Lung', p.lung),
+      withVal('- Heart', p.heart),
+      withVal('- Hemogram', p.hemogram),
+    ].join('\n')],
+    ['[Nutrition]', [
+      `- Alb: ${t(p.nutAlb) ? t(p.nutAlb) + ' g/dL' : ''}`,
+      withVal('- Intake', p.intake),
+      withVal('- BW change', p.bwChange),
+    ].join('\n')],
+    ['[Finance]', withVal('Insurance', p.insurance)],
+    ['[Family support]', t(p.familySupport)],
+    ['[Residency]', t(p.residency)],
+    ['[Viral hepatitis profile]', `HBsAg (${p.hbsag}), Anti-HBs (${p.antiHbs}), Anti-HBc (${p.antiHbc})\nAnti-HCV (${p.antiHcv})`],
+    ['[Tumor marker]', t(p.tumorMarker)],
+    ['[Pathology]', t(p.pathology)],
+    ['[Timeline]', t(p.timeline)],
+    ['[Reply]', t(p.reply)],
+    ['Suggestion', sug.join('\n')],
+    ['', CLOSING],
+  ];
+}
+
+function toText(p) {
+  return build(p)
+    .map(([h, b]) => [h, b].filter(x => x !== '').join('\n'))
+    .join('\n\n')
+    .split('\n').map(l => l.trimEnd()).join('\n');
+}
+
+function renderPage(p) {
+  const hdr = `<table class="hdr"><tr>
+    <td><span>姓名</span>${esc(p.name)}</td>
+    <td><span>病歷號</span>${esc(p.chartNo)}</td>
+    <td><span>病房</span>${esc(p.ward)}</td>
+    <td><span>日期</span>${esc(p.date)}</td></tr></table>`;
+  const body = build(p).map(([h, b]) =>
+    `<div class="sec">${h ? `<div class="h">${esc(h)}</div>` : ''}<div class="b">${esc(b)}</div></div>`).join('');
+  return `<div class="page">${hdr}${body}</div>`;
+}
+
+/* ---------- 畫面更新 ---------- */
+function renderList() {
+  $('#patientList').innerHTML = patients.map(p => `
+    <li class="${p.id === curId ? 'active' : ''}" data-id="${p.id}">
+      <span class="st ${p.status}">${p.status === 'done' ? '✓' : '●'}</span>
+      <span class="nm">${esc(t(p.name) || '(未命名)')}</span>
+      <span class="wd">${esc(p.ward)}</span>
+      <button class="del" data-del="${p.id}" title="刪除">×</button>
+    </li>`).join('');
+  $('#printAllBtn').textContent = `全部輸出 PDF（${patients.length}）`;
+}
+
+function renderPreview() {
+  $('#preview').innerHTML = renderPage(cur());
+}
+
+function autosize(el) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 2 + 'px';
+}
+
+function renderCustom(p) {
+  $('#customList').innerHTML = p.customSug.map((s, i) => `
+    <div class="custom-row"><input type="text" data-custom="${i}" value="${esc(s)}" placeholder="自訂建議">
+    <button type="button" class="icon" data-rmcustom="${i}" title="移除">×</button></div>`).join('');
+}
+
+function fillForm(p) {
+  document.querySelectorAll('[data-k]').forEach(el => {
+    const k = el.dataset.k;
+    if (el.type === 'checkbox') el.checked = !!p[k];
+    else el.value = p[k] ?? '';
+  });
+  form.querySelectorAll('input[type=radio]').forEach(el => { el.checked = p[el.name] === el.value; });
+  renderCustom(p);
+  form.querySelectorAll('textarea').forEach(autosize);
+}
+
+function refresh() { renderList(); renderPreview(); }
+
+function select(id) {
+  curId = id;
+  fillForm(cur());
+  refresh();
+  $('#formScroll').scrollTop = 0;
+}
+
+function addPatient() {
+  const p = newPatient();
+  patients.push(p);
+  select(p.id);
+  document.querySelector('[data-k=name]').focus();
+}
+
+function deletePatient(id) {
+  const p = patients.find(x => x.id === id);
+  if (!p) return;
+  if (p.touched && !confirm(`確定刪除「${t(p.name) || '(未命名)'}」的資料？`)) return;
+  const idx = patients.indexOf(p);
+  patients.splice(idx, 1);
+  if (!patients.length) { addPatient(); return; }
+  if (id === curId) select(patients[Math.max(0, idx - 1)].id);
+  else renderList();
+}
+
+/* ---------- 輸入事件 ---------- */
+function setRadio(name, value) {
+  cur()[name] = value;
+  form.querySelectorAll(`input[name="${name}"]`).forEach(el => { el.checked = el.value === value; });
+}
+
+function onInput(e) {
+  const el = e.target;
+  const p = cur();
+  if (!p) return;
+
+  if (el.type === 'radio') {
+    p[el.name] = el.value;
+  } else if (el.dataset.k) {
+    const k = el.dataset.k;
+    p[k] = el.type === 'checkbox' ? el.checked : el.value;
+
+    // 在「其他」文字框輸入時自動選「其他」
+    if (el.dataset.pick && el.value) setRadio(el.dataset.pick, 'other');
+    // 填 Check / Dr. 欄位時自動勾選該項建議
+    if (el.dataset.tick && el.value) { p[el.dataset.tick] = true; document.getElementById(el.dataset.tick).checked = true; }
+    // 吸菸相關欄位
+    if (k === 'lsCQuit' && el.value) setRadio('lsC', 'quit');
+    if ((k === 'lsCPpd' || k === 'lsCPpdYears') && el.value && !['quit', 'current'].includes(p.lsC)) setRadio('lsC', 'current');
+    // Liver Alb 同步到 Nutrition Alb
+    if (k === 'alb' && p.nutAlbLinked) { p.nutAlb = el.value; document.querySelector('[data-k=nutAlb]').value = el.value; }
+    if (k === 'nutAlb') p.nutAlbLinked = el.value === '';
+  } else if (el.dataset.custom != null) {
+    p.customSug[+el.dataset.custom] = el.value;
+  } else {
+    return;
+  }
+
+  if (el.tagName === 'TEXTAREA') autosize(el);
+  p.touched = true;
+  p.status = 'draft';
+  refresh();
+}
+
+document.addEventListener('input', onInput);
+
+$('#patientList').addEventListener('click', e => {
+  const del = e.target.closest('[data-del]');
+  if (del) { deletePatient(+del.dataset.del); return; }
+  const li = e.target.closest('li[data-id]');
+  if (li && +li.dataset.id !== curId) select(+li.dataset.id);
+});
+
+$('#addBtn').addEventListener('click', addPatient);
+
+$('#addSugBtn').addEventListener('click', () => {
+  const p = cur();
+  p.customSug.push('');
+  renderCustom(p);
+  const inputs = $('#customList').querySelectorAll('input');
+  inputs[inputs.length - 1].focus();
+});
+
+$('#customList').addEventListener('click', e => {
+  const b = e.target.closest('[data-rmcustom]');
+  if (!b) return;
+  const p = cur();
+  p.customSug.splice(+b.dataset.rmcustom, 1);
+  renderCustom(p);
+  p.status = 'draft';
+  refresh();
+});
+
+/* 病毒性肝炎切換按鈕 */
+$('#viralRow').innerHTML = VIRAL.map(([k, label]) => `
+  <span style="margin-right:14px">${label}
+    <span class="seg">${['?', '+', '-'].map(v =>
+      `<label><input type="radio" name="${k}" value="${v}"><span>(${v})</span></label>`).join('')}</span>
+  </span>`).join('');
+
+/* ---------- 複製 / 輸出 ---------- */
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => el.classList.remove('show'), 1600);
+}
+
+async function copyText() {
+  const p = cur();
+  const text = toText(p);
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+  p.status = 'done';
+  renderList();
+  toast('已複製到剪貼簿');
+}
+
+function doPrint(list) {
+  $('#printArea').innerHTML = list.map(renderPage).join('');
+  const oldTitle = document.title;
+  const p = list[0];
+  document.title = list.length === 1
+    ? `Consult_${t(p.name) || '未命名'}_${p.date}`
+    : `Consult_${today()}_${list.length}位`;
+  window.print();
+  document.title = oldTitle;
+  list.forEach(x => { x.status = 'done'; });
+  renderList();
+}
+
+$('#copyBtn').addEventListener('click', copyText);
+$('#printBtn').addEventListener('click', () => doPrint([cur()]));
+$('#printAllBtn').addEventListener('click', () => doPrint(patients));
+
+$('#previewBtn').addEventListener('click', () => {
+  if (window.matchMedia('(max-width: 1250px)').matches) document.body.classList.toggle('force-preview');
+  else document.body.classList.toggle('no-preview');
+});
+
+/* ---------- 離開前提醒 ---------- */
+window.addEventListener('beforeunload', e => {
+  if (patients.some(p => p.touched)) { e.preventDefault(); e.returnValue = ''; }
+});
+
+addPatient();
+</script>
+</body>
+</html>
